@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Design, From Scratch  Part 1: The Anatomy of a Request</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#0a0e17;
+  --panel:#0f1521;
+  --panel-2:#121a2a;
+  --purple:#3b2fc9;
+  --purple-2:#4d3fe0;
+  --line:rgba(110,168,254,0.14);
+  --line-strong:rgba(110,168,254,0.30);
+  --cyan:#5dd6ff;
+  --cyan-dim:#2a8fb8;
+  --amber:#ffb454;
+  --rose:#ff6b81;
+  --green:#5be79c;
+  --blue:#4aa8ff;
+  --text:#dde6f3;
+  --text-dim:#90a0b8;
+  --text-faint:#5b6b85;
+  --serif: 'Space Grotesk', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --body: 'Inter', sans-serif;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important;}
+}
+
+body{
+  background:
+    linear-gradient(var(--bg),var(--bg)),
+    repeating-linear-gradient(0deg, var(--line) 0px, var(--line) 1px, transparent 1px, transparent 64px),
+    repeating-linear-gradient(90deg, var(--line) 0px, var(--line) 1px, transparent 1px, transparent 64px);
+  color:var(--text);
+  font-family:var(--body);
+  line-height:1.6;
+  overflow-x:hidden;
+}
+
+::selection{background:var(--cyan); color:#06101c;}
+a{color:var(--cyan);}
+svg{display:block;}
+
+.wrap{max-width:1080px; margin:0 auto; padding:0 28px;}
+
+.eyebrow{
+  font-family:var(--mono); font-size:12px; letter-spacing:0.18em; text-transform:uppercase;
+  color:var(--cyan); display:flex; align-items:center; gap:10px; margin-bottom:18px;
+}
+.eyebrow::before{
+  content:""; width:8px; height:8px; border-radius:50%; background:var(--cyan);
+  box-shadow:0 0 0 0 rgba(93,214,255,0.6); animation:pulseDot 2.2s infinite;
+}
+@keyframes pulseDot{
+  0%{box-shadow:0 0 0 0 rgba(93,214,255,0.45);}
+  70%{box-shadow:0 0 0 10px rgba(93,214,255,0);}
+  100%{box-shadow:0 0 0 0 rgba(93,214,255,0);}
+}
+
+/* ============ HERO ============ */
+.hero{ padding:110px 0 70px; }
+.series-tag{
+  font-family:var(--mono); font-size:13px; color:var(--text-dim);
+  border:1px solid var(--line-strong); display:inline-flex; width:fit-content;
+  padding:6px 14px; border-radius:100px; margin-bottom:28px; letter-spacing:0.04em;
+}
+.series-tag b{color:var(--amber); font-weight:600;}
+
+h1.title{
+  font-family:var(--serif); font-weight:700; font-size:clamp(34px, 5.6vw, 72px);
+  line-height:1.06; letter-spacing:-0.02em; max-width:880px;
+}
+h1.title em{ font-style:normal; color:var(--cyan); }
+.hero-sub{ margin-top:24px; max-width:600px; font-size:17px; color:var(--text-dim); }
+
+/* HERO SYSTEM DIAGRAM (inspired by ref image 1) */
+.hero-stage{ margin-top:56px; }
+.hero-diagram-frame{
+  border:1px solid var(--line-strong); border-radius:16px;
+  background:linear-gradient(180deg, var(--panel), var(--panel-2));
+  padding:28px; overflow-x:auto;
+}
+.people-grid{ display:grid; grid-template-columns:repeat(8, 1fr); gap:8px; max-width:230px; }
+.people-grid svg .u-fill{ fill:var(--blue); }
+.people-grid svg{ animation:userPulse 3s ease-in-out infinite; }
+.people-grid svg:nth-child(3n){ animation-delay:0.4s; }
+.people-grid svg:nth-child(5n){ animation-delay:0.9s; }
+@keyframes userPulse{ 0%,100%{opacity:0.75;} 50%{opacity:1;} }
+
+.sys-panel{
+  background:linear-gradient(135deg, var(--purple), var(--purple-2));
+  border-radius:14px; padding:22px 26px; position:relative;
+}
+.sys-row{ display:flex; align-items:center; gap:18px; }
+.sys-node{
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:9.5px; color:#eaf1ff; text-align:center; min-width:56px;
+}
+.sys-node svg{ width:30px; height:30px; }
+.sys-line{ flex:1; height:2px; background:rgba(255,255,255,0.25); position:relative; min-width:24px; }
+.sys-line .pellet{
+  position:absolute; top:50%; left:0; width:5px; height:5px; border-radius:50%;
+  background:#ffd27a; transform:translateY(-50%);
+  animation:travel 2.2s linear infinite;
+}
+@keyframes travel{ 0%{left:0%; opacity:0;} 10%{opacity:1;} 90%{opacity:1;} 100%{left:100%; opacity:0;} }
+
+/* ============ SECTION SHELL ============ */
+section.topic{ padding:100px 0; border-top:1px solid var(--line); }
+.topic-head{ display:flex; gap:22px; align-items:baseline; margin-bottom:18px; }
+.topic-num{ font-family:var(--mono); font-size:14px; color:var(--text-faint); white-space:nowrap; }
+h2.topic-title{
+  font-family:var(--serif); font-weight:600; font-size:clamp(24px,3.2vw,36px); letter-spacing:-0.01em;
+}
+.topic-lede{ max-width:680px; color:var(--text-dim); font-size:16px; margin-bottom:40px; }
+.topic-lede strong{color:var(--text);}
+
+.copy{max-width:680px;}
+.copy p{margin-bottom:16px; color:var(--text-dim); font-size:15.5px;}
+.copy p strong{color:var(--text);}
+.copy ul{margin:18px 0; max-width:640px;}
+.copy li{ list-style:none; position:relative; padding-left:22px; margin-bottom:10px; color:var(--text-dim); font-size:15px; }
+.copy li::before{ content:"›"; position:absolute; left:0; color:var(--cyan); font-family:var(--mono); }
+.copy li strong{color:var(--text);}
+
+.callout{
+  font-family:var(--mono); font-size:13px; color:var(--amber);
+  border-left:2px solid var(--amber); padding:10px 16px;
+  background:rgba(255,180,84,0.05); margin:22px 0; max-width:600px;
+}
+
+.diagram{
+  margin-top:44px; border:1px solid var(--line-strong); border-radius:14px;
+  background:linear-gradient(180deg, var(--panel), var(--panel-2));
+  padding:36px; position:relative; overflow:hidden;
+}
+.diagram::before{
+  content:attr(data-label); position:absolute; top:14px; left:18px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em;
+  text-transform:uppercase; color:var(--text-faint);
+}
+
+/* generic svg node */
+.node{
+  border:1.5px solid var(--line-strong); border-radius:10px; background:rgba(255,255,255,0.02);
+  padding:14px 16px; font-family:var(--mono); font-size:12px; color:var(--text-dim);
+  display:flex; flex-direction:column; align-items:center; gap:8px; min-width:96px; text-align:center;
+}
+.node svg{ width:28px; height:28px; }
+.node .node-title{ color:var(--text); font-size:12px; font-weight:600; }
+.node.cyan{border-color:var(--cyan); box-shadow:0 0 18px rgba(93,214,255,0.15);}
+.node.cyan svg{color:var(--cyan);}
+.node.green{border-color:var(--green); box-shadow:0 0 18px rgba(91,231,156,0.18);}
+.node.green svg{color:var(--green);}
+.node.rose{border-color:var(--rose); box-shadow:0 0 18px rgba(255,107,129,0.18);}
+.node.rose svg{color:var(--rose);}
+.node.amber{border-color:var(--amber);}
+.node.amber svg{color:var(--amber);}
+
+.flow-row{display:flex; align-items:center; gap:0; flex-wrap:wrap;}
+.flow-line{ flex:1; min-width:40px; height:2px; background:var(--line-strong); position:relative; margin:0 4px; }
+.flow-line .dot{
+  position:absolute; top:50%; left:0; width:6px; height:6px; border-radius:50%; background:var(--cyan);
+  transform:translateY(-50%); animation:travel2 2.4s linear infinite; opacity:0;
+}
+@keyframes travel2{ 0%{left:0%; opacity:0;} 10%{opacity:1;} 90%{opacity:1;} 100%{left:100%; opacity:0;} }
+
+/* === Section 1: DNS resolution === */
+.dns-row{ display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; margin-bottom:32px;}
+.dns-arrows{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+.dns-label{ font-family:var(--mono); font-size:10px; color:var(--text-faint); }
+.dns-table{
+  font-family:var(--mono); font-size:11px; border:1px solid var(--line-strong); border-radius:8px; overflow:hidden;
+}
+.dns-table div{ display:flex; }
+.dns-table span{ padding:8px 14px; border-bottom:1px solid var(--line); border-right:1px solid var(--line); color:var(--text-dim); }
+.dns-table span:last-child{border-right:none;}
+.dns-table .h{ color:var(--text); font-weight:600; background:rgba(255,255,255,0.02); }
+
+/* === Section: traffic payload === */
+.traffic-row{display:flex; align-items:center; gap:18px; margin-bottom:30px; flex-wrap:wrap;}
+.traffic-row:last-child{margin-bottom:0;}
+.payload{
+  height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:11px; color:#06101c; font-weight:600; animation:breathe 3s ease-in-out infinite;
+}
+@keyframes breathe{0%,100%{filter:brightness(1);}50%{filter:brightness(1.25);}}
+.payload.heavy{width:160px; background:linear-gradient(90deg,var(--amber),#ffd27a);}
+.payload.light{width:64px; background:linear-gradient(90deg,var(--cyan),#9be9ff);}
+
+/* === tiers === */
+.tiers{display:flex; gap:24px; flex-wrap:wrap;}
+.tier-panel{
+  flex:1; min-width:250px; border:2px dashed var(--line-strong); border-radius:14px; padding:22px;
+}
+.tier-panel .tier-label{ font-family:var(--mono); font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:16px; text-align:center;}
+.tier-panel.web{ border-color:rgba(93,214,255,0.4); }
+.tier-panel.data{ border-color:rgba(255,180,84,0.4); }
+.web-boxes{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+.web-boxes .node{ min-width:64px; padding:10px; }
+.tier-note{font-family:var(--mono); font-size:11px; color:var(--text-faint); margin-top:14px; text-align:center;}
+
+/* === databases === */
+.db-cards{display:flex; gap:24px; flex-wrap:wrap;}
+.db-card{ flex:1; min-width:260px; border:1.5px solid var(--line-strong); border-radius:10px; padding:20px; }
+.db-card h4{font-family:var(--serif); font-size:17px; margin-bottom:4px;}
+.db-card .logos{font-family:var(--mono); font-size:11px; color:var(--text-faint); margin-bottom:16px;}
+.table-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:3px;}
+.table-grid div{ height:14px; background:rgba(255,180,84,0.10); border:1px solid rgba(255,180,84,0.3); border-radius:2px; animation:fadeRow 2.4s ease-in-out infinite;}
+.table-grid div:nth-child(2n){animation-delay:0.4s;}
+.table-grid div:nth-child(3n){animation-delay:0.8s;}
+@keyframes fadeRow{0%,100%{opacity:0.5;}50%{opacity:1;}}
+.blob{
+  width:100%; height:64px; background:rgba(93,214,255,0.08); border:1.5px dashed var(--cyan);
+  animation:morph 4s ease-in-out infinite;
+}
+@keyframes morph{
+  0%,100%{border-radius:38% 62% 60% 40% / 40% 40% 60% 60%;}
+  50%{border-radius:60% 40% 35% 65% / 55% 60% 40% 45%;}
+}
+
+/* === scaling === */
+.scale-pair{display:flex; gap:28px; flex-wrap:wrap;}
+.scale-col{flex:1; min-width:240px; text-align:center;}
+.scale-stage{height:120px; display:flex; align-items:center; justify-content:center; gap:10px;}
+.v-box{ width:60px; height:60px; animation:grow 3s ease-in-out infinite; }
+.v-box svg{width:100%; height:100%;}
+@keyframes grow{ 0%,100%{transform:scale(1);} 50%{transform:scale(1.5);} }
+.h-box{ width:46px; height:46px; opacity:1; animation:cloneIn 3s ease-in-out infinite; }
+.h-box svg{width:100%; height:100%; color:var(--green);}
+.h-box.base{animation:none;}
+.h-box:nth-child(2){animation-delay:0.4s;}
+.h-box:nth-child(3){animation-delay:0.8s;}
+.h-box:nth-child(4){animation-delay:1.2s;}
+@keyframes cloneIn{
+  0%,15%{opacity:0; transform:scale(0.4);}
+  30%,100%{opacity:1; transform:scale(1);}
+}
+
+/* === load balancer / health checks (image 9 style) === */
+.lb-stage{display:flex; align-items:center; gap:0; min-height:210px;}
+.lb-source{display:flex; flex-direction:column; gap:10px;}
+.lb-pellet{ width:8px; height:8px; border-radius:50%; background:var(--amber); }
+.lb-mid{flex:1; display:flex; align-items:center; justify-content:center; position:relative; height:170px;}
+.lb-node{ width:60px; height:60px; color:var(--cyan); position:relative; z-index:2; }
+.lb-targets{display:flex; flex-direction:column; gap:16px;}
+.lb-flow{position:absolute; inset:0;}
+.lb-particle{ position:absolute; width:6px; height:6px; border-radius:50%; background:var(--amber); left:0; opacity:0; animation:lbtravel 2.1s linear infinite; }
+.lb-particle.t1{top:14%; animation-delay:0s;}
+.lb-particle.t2{top:50%; animation-delay:0.7s;}
+.lb-particle.t3{top:86%; animation-delay:1.4s;}
+@keyframes lbtravel{ 0%{left:0%; opacity:0;} 6%{opacity:1;} 94%{opacity:1;} 100%{left:97%; opacity:0;} }
+.hc-target{ display:flex; align-items:center; gap:10px; }
+.hc-target svg{width:38px; height:38px; color:var(--green);}
+.hc-target.down svg{color:var(--rose);}
+.hc-x{ position:relative; width:38px; height:38px; }
+.hc-x::before, .hc-x::after{
+  content:""; position:absolute; top:50%; left:50%; width:34px; height:3px; background:var(--rose);
+}
+.hc-x::before{ transform:translate(-50%,-50%) rotate(45deg); }
+.hc-x::after{ transform:translate(-50%,-50%) rotate(-45deg); }
+.hc-target.down{ animation:blinkDown 4s ease-in-out infinite; }
+@keyframes blinkDown{ 0%,60%{opacity:1;} 65%,90%{opacity:0.4;} 100%{opacity:1;} }
+
+/* === SPOF === */
+.spof-stage{display:flex; flex-direction:column; align-items:center; gap:26px;}
+.spof-lb{ width:70px; height:70px; position:relative; animation:fail 4s ease-in-out infinite; }
+.spof-lb svg{ width:100%; height:100%; color:var(--cyan); }
+.spof-lb .x-mark{ position:absolute; inset:-8px; opacity:0; }
+.spof-lb .x-mark::before, .spof-lb .x-mark::after{
+  content:""; position:absolute; top:50%; left:50%; width:70px; height:4px; background:var(--rose);
+}
+.spof-lb .x-mark::before{ transform:translate(-50%,-50%) rotate(45deg); }
+.spof-lb .x-mark::after{ transform:translate(-50%,-50%) rotate(-45deg); }
+@keyframes fail{
+  0%,55%{ color:var(--cyan); }
+  60%,90%{ }
+  100%{ }
+}
+.diagram .spof-lb{ animation:none; }
+.spof-lb.animate .x-mark{ animation:xshow 4s ease-in-out infinite; }
+@keyframes xshow{ 0%,55%{opacity:0;} 60%,90%{opacity:1;} 100%{opacity:0;} }
+.spof-lb.animate svg{ animation:failColor 4s ease-in-out infinite; }
+@keyframes failColor{
+  0%,55%{color:var(--cyan);}
+  60%,90%{color:var(--rose);}
+  100%{color:var(--cyan);}
+}
+.spof-servers{display:flex; gap:20px;}
+.spof-server{ width:48px; height:48px; animation:starve 4s ease-in-out infinite; }
+.spof-server svg{width:100%; height:100%; color:var(--text-faint);}
+@keyframes starve{ 0%,55%{opacity:1;} 60%,90%{opacity:0.25;} 100%{opacity:1;} }
+
+/* === redundancy === */
+.redun-stage{display:flex; gap:60px; align-items:center; justify-content:center; flex-wrap:wrap;}
+.redun-pair{display:flex; flex-direction:column; gap:16px;}
+.redun-node{
+  width:110px; height:56px; border-radius:8px; border:1.5px solid var(--line-strong);
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  font-family:var(--mono); font-size:10px; color:var(--text-faint);
+}
+.redun-node svg{width:22px; height:22px;}
+.redun-node.a{animation:swapA 5s ease-in-out infinite;}
+.redun-node.b{animation:swapB 5s ease-in-out infinite;}
+@keyframes swapA{
+  0%,45%{border-color:var(--green); color:var(--green); background:rgba(91,231,156,0.08);}
+  50%,90%{border-color:var(--rose); color:var(--rose); background:rgba(255,107,129,0.08);}
+  100%{border-color:var(--green); color:var(--green); background:rgba(91,231,156,0.08);}
+}
+@keyframes swapB{
+  0%,45%{border-color:var(--line-strong); color:var(--text-faint); background:transparent;}
+  50%,90%{border-color:var(--green); color:var(--green); background:rgba(91,231,156,0.08);}
+  100%{border-color:var(--line-strong); color:var(--text-faint); background:transparent;}
+}
+.redun-node svg{ color:inherit; }
+
+/* === self healing === */
+.heal-stage{display:flex; align-items:center; justify-content:center; height:130px;}
+.heal-box{
+  width:72px; height:72px; display:flex; align-items:center; justify-content:center;
+  animation:healCycle 5s ease-in-out infinite;
+}
+.heal-box svg{ width:44px; height:44px; }
+@keyframes healCycle{
+  0%,30%{ transform:scale(1) rotate(0deg); }
+  38%{ transform:scale(0.9) rotate(-4deg); }
+  46%{ opacity:0.15; transform:scale(0.5) rotate(8deg); }
+  55%{ opacity:0; transform:scale(0.2); }
+  65%{ opacity:0; transform:scale(0.2); }
+  78%{ opacity:1; transform:scale(1.15); }
+  100%{ transform:scale(1); }
+}
+.heal-box svg{ animation:healColor 5s ease-in-out infinite; }
+@keyframes healColor{
+  0%,30%{color:var(--green);}
+  38%,55%{color:var(--rose);}
+  78%,100%{color:var(--green);}
+}
+
+/* === timeline === */
+.timeline{display:flex; align-items:center; position:relative; padding:30px 0;}
+.tl-step{ flex:1; display:flex; flex-direction:column; align-items:center; gap:10px; position:relative; z-index:2; }
+.tl-dot{ width:14px; height:14px; border-radius:50%; border:2px solid var(--cyan); background:var(--bg); }
+.tl-label{font-family:var(--mono); font-size:11px; color:var(--text-dim); text-align:center;}
+.tl-line{ position:absolute; top:36px; left:7%; right:7%; height:2px; background:var(--line-strong); z-index:1; }
+.tl-particle{ position:absolute; top:35px; width:6px; height:6px; border-radius:50%; background:var(--amber); left:0; animation:tltravel 6s linear infinite; }
+@keyframes tltravel{ 0%{left:7%; opacity:0;} 5%{opacity:1;} 95%{opacity:1;} 100%{left:93%; opacity:0;} }
+
+.brand-tag{ display:inline-flex; align-items:center; gap:8px; margin-bottom:18px; }
+.brand-tag .wordmark{ font-family:var(--serif); font-weight:700; font-size:20px; letter-spacing:0.01em; color:#e50914; }
+.brand-tag .tag-sep{color:var(--text-faint); font-family:var(--mono); font-size:12px;}
+.brand-tag .tag-ctx{font-family:var(--mono); font-size:12px; color:var(--text-faint);}
+
+.next-up{ margin-top:110px; padding:50px 0 100px; border-top:1px solid var(--line); }
+.next-card{
+  border:1.5px solid var(--line-strong); border-radius:14px; padding:32px;
+  background:linear-gradient(135deg, rgba(93,214,255,0.05), transparent);
+  display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap;
+}
+.next-card h3{ font-family:var(--serif); font-size:24px; font-weight:600; }
+.next-card p{ color:var(--text-dim); margin-top:8px; max-width:480px; }
+.next-arrow{
+  font-family:var(--mono); font-size:13px; color:var(--cyan); white-space:nowrap;
+  border:1px solid var(--cyan); padding:10px 18px; border-radius:100px;
+}
+
+@media (max-width:640px){
+  .hero{padding:90px 0 50px;}
+  section.topic{padding:70px 0;}
+  .diagram{padding:22px;}
+  .topic-head{flex-direction:column; gap:6px;}
+  .people-grid{max-width:190px; grid-template-columns:repeat(6,1fr);}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ SVG ICON LIBRARY ============ -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="ic-user" viewBox="0 0 24 24">
+      <circle cx="12" cy="8" r="4" class="u-fill" fill="currentColor"/>
+      <path class="u-fill" fill="currentColor" d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8v1H4v-1z"/>
+    </symbol>
+    <symbol id="ic-browser" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="2" y="4" width="20" height="14" rx="1.5"/>
+      <path d="M2 8h20"/>
+      <path d="M8 21h8M12 18v3"/>
+    </symbol>
+    <symbol id="ic-mobile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="7" y="2" width="10" height="20" rx="2"/>
+      <path d="M11 19h2"/>
+    </symbol>
+    <symbol id="ic-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="3" width="18" height="6" rx="1.2"/>
+      <rect x="3" y="10" width="18" height="6" rx="1.2"/>
+      <rect x="3" y="17" width="18" height="4" rx="1.2"/>
+      <circle cx="6.5" cy="6" r="0.9" fill="currentColor" stroke="none"/>
+      <circle cx="6.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="ic-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <ellipse cx="12" cy="5" rx="8" ry="3"/>
+      <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+    </symbol>
+    <symbol id="ic-cache" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <ellipse cx="12" cy="5" rx="8" ry="3"/>
+      <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+      <path d="M12.5 8.5l-2 3.6h2.4l-2 3.4" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="ic-dns" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>
+    </symbol>
+    <symbol id="ic-cdn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <path d="M7 18a4.5 4.5 0 010-9 5.5 5.5 0 0110.5-1.5A4 4 0 0119 18H7z"/>
+    </symbol>
+    <symbol id="ic-queue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="4" y="4" width="4" height="16"/>
+      <rect x="10" y="7" width="4" height="13"/>
+      <rect x="16" y="10" width="4" height="10"/>
+    </symbol>
+    <symbol id="ic-lb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="9" width="18" height="6" rx="1.4"/>
+      <circle cx="7" cy="12" r="0.9" fill="currentColor" stroke="none"/>
+      <circle cx="10" cy="12" r="0.9" fill="currentColor" stroke="none"/>
+      <path d="M21 8l2-2M21 16l2 2" stroke-width="1.3"/>
+    </symbol>
+    <symbol id="ic-api" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="6" width="18" height="12" rx="2"/>
+      <path d="M8 10v4M12 10v4M16 10l1.5 4M16 14l1.5-4" stroke-width="1.3"/>
+    </symbol>
+    <symbol id="ic-cloud-storage" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <rect x="3" y="4" width="18" height="16" rx="2"/>
+      <path d="M3 10h18M3 15h18"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="series-tag">SYSTEM DESIGN, FROM SCRATCH · <b>PART 1 / 4</b></div>
+    <h1 class="title">Every system that serves <em>millions</em> still answers to <em>one</em> request at a time.</h1>
+    <p class="hero-sub">Before microservices, before sharding, before the whiteboard interview  there's a single user clicking a single button. This series starts there, and builds up only when the previous layer actually breaks.</p>
+
+    <div class="hero-stage">
+      <div class="hero-diagram-frame">
+        <div style="display:flex; gap:28px; align-items:center; flex-wrap:wrap;">
+          <div class="people-grid" id="peopleGrid"></div>
+          <div style="flex:1; min-width:280px;">
+            <div class="sys-panel">
+              <div class="sys-row" style="margin-bottom:18px;">
+                <div class="sys-node"><svg><use href="#ic-lb"/></svg>Load<br>Balancer</div>
+                <div class="sys-line"><div class="pellet"></div></div>
+                <div class="sys-node"><svg><use href="#ic-api"/></svg>API</div>
+                <div class="sys-line"><div class="pellet" style="animation-delay:0.5s"></div></div>
+                <div class="sys-node"><svg><use href="#ic-cache"/></svg>Cache</div>
+              </div>
+              <div class="sys-row">
+                <div class="sys-node" style="visibility:hidden;"><svg><use href="#ic-lb"/></svg>_</div>
+                <div class="sys-line"></div>
+                <div class="sys-node"><svg><use href="#ic-queue"/></svg>Queue</div>
+                <div class="sys-line"><div class="pellet" style="animation-delay:1s"></div></div>
+                <div class="sys-node"><svg><use href="#ic-db"/></svg>DB</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 0: WHY -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">00</span>
+      <h2 class="topic-title">Why bother understanding this at all?</h2>
+    </div>
+    <div class="copy">
+      <p>Most engineers meet "system design" as an interview format  a whiteboard, a 45-minute clock, a request to design something Twitter-shaped. That framing makes it feel like trivia: memorize the load balancer, memorize the cache, recite it back.</p>
+      <p>It isn't trivia. <strong>It's the difference between a product that degrades gracefully and one that falls over completely</strong> the first time it gets popular. The good news is that almost everything below is built from the same handful of ideas, reapplied at different scales.</p>
+      <p>This first part stays close to the ground: <strong>what a request actually is, where it comes from, and what happens to it the moment more than one person sends one at the same time.</strong> Parts two through four build caching, asynchronous messaging, and global distribution on top of this foundation.</p>
+    </div>
+  </section>
+
+  <!-- 1: TRAFFIC IDENTIFICATION + DNS -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">01</span>
+      <h2 class="topic-title">Where does traffic even come from?</h2>
+    </div>
+    <p class="topic-lede">Before a request reaches your server, it has to find it. That's what DNS does  turn a name into an address.</p>
+
+    <div class="diagram" data-label="DNS: name to address">
+      <div class="dns-row">
+        <div class="node"><svg><use href="#ic-browser"/></svg><span class="node-title">app.demo.com</span></div>
+        <div style="flex:0 0 60px; text-align:center;">
+          <div class="dns-label">query →</div>
+        </div>
+        <div class="node cyan"><svg><use href="#ic-dns"/></svg><span class="node-title">DNS</span></div>
+        <div style="flex:0 0 60px; text-align:center;">
+          <div class="dns-label">← 172.16.254.254</div>
+        </div>
+      </div>
+      <div class="dns-table">
+        <div>
+          <span class="h">Domain</span><span class="h">IP Address</span>
+        </div>
+        <div>
+          <span>app.demo.com</span><span>172.16.254.254</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="topic-lede" style="margin-top:44px;">Once resolved, the request lands from one of two doors  a <strong>browser</strong> or a <strong>mobile app</strong>  and the two doors want completely different things.</p>
+    <div class="copy">
+      <p><strong>A browser wants the whole page.</strong> Chrome, Safari, Firefox  none of them have any idea what your product looks like until your server tells them, in HTML, CSS, and JavaScript.</p>
+      <ul>
+        <li><strong>Full layout required</strong>  the server ships markup and styling, not just facts.</li>
+        <li><strong>Cookies & sessions</strong>  login state usually rides in a cookie.</li>
+        <li><strong>Stable pipe assumed</strong>  Wi-Fi or broadband, so bigger payloads are fine.</li>
+        <li><strong>Always current</strong>  refresh and you get the latest version, no versioning question.</li>
+      </ul>
+      <p><strong>A mobile app already has the layout.</strong> It was compiled into the app weeks ago. All it wants from your server is raw facts.</p>
+      <ul>
+        <li><strong>Just JSON</strong>  API calls in, structured data out.</li>
+        <li><strong>Token-based auth</strong>  JWTs, not cookies.</li>
+        <li><strong>Version support</strong>  someone's always on last year's build.</li>
+        <li><strong>Flaky pipe assumed</strong>  5G one minute, a basement the next.</li>
+      </ul>
+    </div>
+
+    <div class="diagram run" data-label="request payloads, browser vs mobile">
+      <div class="traffic-row">
+        <div class="node"><svg><use href="#ic-browser"/></svg><span class="node-title">Browser</span></div>
+        <div class="flow-line"><div class="dot"></div></div>
+        <div class="payload heavy">HTML + CSS + JS</div>
+        <div class="flow-line"><div class="dot" style="animation-delay:0.4s"></div></div>
+        <div class="node cyan"><svg><use href="#ic-server"/></svg><span class="node-title">Server</span></div>
+      </div>
+      <div class="traffic-row">
+        <div class="node"><svg><use href="#ic-mobile"/></svg><span class="node-title">Mobile App</span></div>
+        <div class="flow-line"><div class="dot" style="animation-delay:0.9s"></div></div>
+        <div class="payload light">JSON</div>
+        <div class="flow-line"><div class="dot" style="animation-delay:1.3s"></div></div>
+        <div class="node cyan"><svg><use href="#ic-server"/></svg><span class="node-title">Server</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2: TIERS -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">02</span>
+      <h2 class="topic-title">Splitting the load: web tier vs. data tier</h2>
+    </div>
+    <p class="topic-lede">This setup works fine for a modest user base  but it doesn't survive real traffic, because <strong>not everything strains at the same rate.</strong></p>
+    <div class="copy">
+      <p>As users grow, the part that answers requests and the part that stores data start to feel pressure differently  so it pays to separate them on purpose.</p>
+      <ul>
+        <li><strong>Web tier</strong>  handles incoming requests, returns HTML or JSON. Add two or three more servers behind a load balancer. Cheap, fast, repeatable.</li>
+        <li><strong>Data tier</strong>  the database. Scaling it means read replicas or sharding. Keeping the two tiers separate means you grow the web layer without ever touching the database.</li>
+      </ul>
+    </div>
+    <div class="diagram run" data-label="web tier scales easily, data tier doesn't">
+      <div class="tiers">
+        <div class="tier-panel web">
+          <div class="tier-label">Web Tier</div>
+          <div class="web-boxes">
+            <div class="node cyan"><svg><use href="#ic-server"/></svg></div>
+            <div class="node cyan"><svg><use href="#ic-server"/></svg></div>
+            <div class="node cyan"><svg><use href="#ic-server"/></svg></div>
+            <div class="node cyan"><svg><use href="#ic-server"/></svg></div>
+          </div>
+          <div class="tier-note">+ spin up another server anytime</div>
+        </div>
+        <div class="tier-panel data">
+          <div class="tier-label">Data Tier</div>
+          <div class="web-boxes">
+            <div class="node amber"><svg><use href="#ic-db"/></svg></div>
+          </div>
+          <div class="tier-note">replicas & sharding, not just "add a box"</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3: DATABASES -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">03</span>
+      <h2 class="topic-title">Choosing a database: relational vs. non-relational</h2>
+    </div>
+    <p class="topic-lede">"But which database?" The honest answer is: it depends on whether your data wants to be a <strong>spreadsheet</strong> or a <strong>folder</strong>.</p>
+    <div class="diagram run" data-label="SQL vs NoSQL">
+      <div class="db-cards">
+        <div class="db-card">
+          <h4 style="color:var(--amber)">Relational</h4>
+          <div class="logos">PostgreSQL · MySQL · SQLite · Oracle</div>
+          <div class="table-grid">
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+        <div class="db-card">
+          <h4 style="color:var(--cyan)">Non-Relational</h4>
+          <div class="logos">Cassandra · Redis · Neo4j · MongoDB</div>
+          <div class="blob"></div>
+        </div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:36px;">
+      <p><strong>Relational databases</strong> are a perfectly organized spreadsheet: fixed tables, fixed columns, clear relationships between them. That rigidity buys you strong consistency  exactly what you want for a bank balance or a checkout flow.</p>
+      <p><strong>Non-relational databases</strong> are an open folder: documents, key-value pairs, graphs  whatever shape the data actually has. Most are built to scale horizontally with very low read/write latency, which is why they show up under social feeds and caching layers.</p>
+      <div class="callout">RULE OF THUMB → Fixed shape + 100% accuracy required → relational. Flexible shape + huge volume + raw speed → non-relational.</div>
+    </div>
+  </section>
+
+  <!-- 4: SCALING -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">04</span>
+      <h2 class="topic-title">Scaling up vs. scaling out</h2>
+    </div>
+    <p class="topic-lede">"Code is easy. Keeping it alive when a million people show up at once  that's the actual job." There are exactly two ways to respond to that pressure.</p>
+    <div class="diagram run" data-label="vertical vs horizontal scaling">
+      <div class="scale-pair">
+        <div class="scale-col">
+          <div class="tier-label" style="text-align:center; margin-bottom:14px;">Vertical  make it bigger</div>
+          <div class="scale-stage"><div class="v-box" style="color:var(--amber);"><svg style="width:100%;height:100%;"><use href="#ic-server"/></svg></div></div>
+          <div class="tier-note">8GB RAM → 64GB RAM, same single box</div>
+        </div>
+        <div class="scale-col">
+          <div class="tier-label" style="text-align:center; margin-bottom:14px;">Horizontal  make more of it</div>
+          <div class="scale-stage">
+            <div class="h-box base"><svg><use href="#ic-server"/></svg></div>
+            <div class="h-box"><svg><use href="#ic-server"/></svg></div>
+            <div class="h-box"><svg><use href="#ic-server"/></svg></div>
+            <div class="h-box"><svg><use href="#ic-server"/></svg></div>
+          </div>
+          <div class="tier-note">same-size boxes, cloned on demand</div>
+        </div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:36px;">
+      <p><strong>Vertical scaling</strong> is turning your old computer into a superhero: same machine, bigger engine. The catch is a hard ceiling  eventually no machine is big enough, and that one machine is still a single point of failure.</p>
+      <p><strong>Horizontal scaling</strong> is buying more ordinary cars instead of one giant bus. Scalability becomes close to infinite, but now you need something standing in front of all of them, dividing the traffic. Which brings us to </p>
+    </div>
+  </section>
+
+  <!-- 5: LOAD BALANCER -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">05</span>
+      <h2 class="topic-title">The load balancer: traffic's police officer</h2>
+    </div>
+    <p class="topic-lede">10,000 people hit your site at once, and you're running three servers. Someone has to direct traffic  that's the load balancer's entire job.</p>
+    <div class="diagram run" data-label="incoming requests, distributed evenly">
+      <svg viewBox="0 0 700 260" style="width:100%; height:auto; max-width:640px; display:block; margin:0 auto;">
+        <!-- connecting lines -->
+        <path id="lbPathIn" d="M40,130 L280,130" fill="none" stroke="rgba(110,168,254,0.3)" stroke-width="2"/>
+        <path id="lbPathA" d="M340,120 C420,90 480,50 600,40" fill="none" stroke="rgba(110,168,254,0.3)" stroke-width="2"/>
+        <path id="lbPathB" d="M340,130 L600,130" fill="none" stroke="rgba(110,168,254,0.3)" stroke-width="2"/>
+        <path id="lbPathC" d="M340,140 C420,170 480,210 600,220" fill="none" stroke="rgba(110,168,254,0.3)" stroke-width="2"/>
+
+        <!-- users (source) -->
+        <g fill="#ffb454">
+          <circle cx="20" cy="110" r="4"/>
+          <circle cx="20" cy="130" r="4"/>
+          <circle cx="20" cy="150" r="4"/>
+        </g>
+        <text x="20" y="185" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#5b6b85">USERS</text>
+
+        <!-- load balancer node -->
+        <g transform="translate(280,100)">
+          <rect width="60" height="60" rx="10" fill="rgba(93,214,255,0.08)" stroke="#5dd6ff" stroke-width="1.6"/>
+          <foreignObject x="12" y="12" width="36" height="36">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="width:36px;height:36px;color:#5dd6ff;">
+              <svg viewBox="0 0 24 24" style="width:100%;height:100%;"><use href="#ic-lb"/></svg>
+            </div>
+          </foreignObject>
+        </g>
+        <text x="310" y="180" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#5dd6ff">LB</text>
+
+        <!-- servers A B C -->
+        <g transform="translate(600,10)">
+          <rect width="60" height="60" rx="10" fill="rgba(255,255,255,0.02)" stroke="rgba(110,168,254,0.3)" stroke-width="1.6"/>
+          <foreignObject x="12" y="12" width="36" height="36">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="width:36px;height:36px;color:#90a0b8;">
+              <svg viewBox="0 0 24 24" style="width:100%;height:100%;"><use href="#ic-server"/></svg>
+            </div>
+          </foreignObject>
+        </g>
+        <text x="630" y="90" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#90a0b8">A</text>
+
+        <g transform="translate(600,100)">
+          <rect width="60" height="60" rx="10" fill="rgba(255,255,255,0.02)" stroke="rgba(110,168,254,0.3)" stroke-width="1.6"/>
+          <foreignObject x="12" y="12" width="36" height="36">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="width:36px;height:36px;color:#90a0b8;">
+              <svg viewBox="0 0 24 24" style="width:100%;height:100%;"><use href="#ic-server"/></svg>
+            </div>
+          </foreignObject>
+        </g>
+        <text x="630" y="180" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#90a0b8">B</text>
+
+        <g transform="translate(600,190)">
+          <rect width="60" height="60" rx="10" fill="rgba(255,255,255,0.02)" stroke="rgba(110,168,254,0.3)" stroke-width="1.6"/>
+          <foreignObject x="12" y="12" width="36" height="36">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="width:36px;height:36px;color:#90a0b8;">
+              <svg viewBox="0 0 24 24" style="width:100%;height:100%;"><use href="#ic-server"/></svg>
+            </div>
+          </foreignObject>
+        </g>
+        <text x="630" y="270" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="#90a0b8">C</text>
+
+        <!-- traveling request dots: users -> LB -->
+        <circle r="4.5" fill="#ffb454">
+          <animateMotion dur="1s" repeatCount="indefinite" begin="0s">
+            <mpath href="#lbPathIn"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1s" repeatCount="indefinite"/>
+        </circle>
+        <circle r="4.5" fill="#ffb454">
+          <animateMotion dur="1s" repeatCount="indefinite" begin="0.35s">
+            <mpath href="#lbPathIn"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1s" repeatCount="indefinite" begin="0.35s"/>
+        </circle>
+        <circle r="4.5" fill="#ffb454">
+          <animateMotion dur="1s" repeatCount="indefinite" begin="0.7s">
+            <mpath href="#lbPathIn"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1s" repeatCount="indefinite" begin="0.7s"/>
+        </circle>
+
+        <!-- traveling dots: LB -> A / B / C, staggered so it visibly round-robins -->
+        <circle r="4.5" fill="#5dd6ff">
+          <animateMotion dur="1.1s" repeatCount="indefinite" begin="1s">
+            <mpath href="#lbPathA"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1.1s" repeatCount="indefinite" begin="1s"/>
+        </circle>
+        <circle r="4.5" fill="#5dd6ff">
+          <animateMotion dur="1.1s" repeatCount="indefinite" begin="1.35s">
+            <mpath href="#lbPathB"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1.1s" repeatCount="indefinite" begin="1.35s"/>
+        </circle>
+        <circle r="4.5" fill="#5dd6ff">
+          <animateMotion dur="1.1s" repeatCount="indefinite" begin="1.7s">
+            <mpath href="#lbPathC"/>
+          </animateMotion>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="1.1s" repeatCount="indefinite" begin="1.7s"/>
+        </circle>
+      </svg>
+    </div>
+    <div class="copy" style="margin-top:10px;">
+      <p>It sits at the very front, catches everything coming in, and hands it off using one of a few simple algorithms:</p>
+      <ul>
+        <li><strong>Round Robin</strong>  straight down the line: A, then B, then C, then back to A.</li>
+        <li><strong>Least Connections</strong>  whichever server is least busy right now gets the next request.</li>
+        <li><strong>IP Hash</strong>  a given user's IP always lands on the same server.</li>
+      </ul>
+      <p>It also runs health checks constantly. Common software options are <strong>Nginx</strong> and <strong>HAProxy</strong>; <strong>F5</strong> is a well-known hardware option; cloud providers like AWS will run it for you if you'd rather not configure it.</p>
+    </div>
+  </section>
+
+  <!-- 6: SPOF -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">06</span>
+      <h2 class="topic-title">The hidden cracks: single points of failure</h2>
+    </div>
+    <p class="topic-lede">Look closely at the diagram above and two things stand out: <strong>everything depends on that one load balancer, and every server depends on that one database.</strong> Kill either, and the whole product goes down.</p>
+    <div class="diagram run" data-label="when the single load balancer fails">
+      <div class="spof-stage">
+        <div class="spof-lb animate"><svg><use href="#ic-lb"/></svg><div class="x-mark"></div></div>
+        <div class="spof-servers">
+          <div class="spof-server"><svg><use href="#ic-server"/></svg></div>
+          <div class="spof-server"><svg><use href="#ic-server"/></svg></div>
+          <div class="spof-server"><svg><use href="#ic-server"/></svg></div>
+        </div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:10px;">
+      <p>A single point of failure (SPOF) is any one component that, if it disappears, takes the entire system with it. The fix isn't a clever algorithm  it's refusing to let anything important exist in a quantity of one.</p>
+    </div>
+  </section>
+
+  <!-- 7: REDUNDANCY -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">07</span>
+      <h2 class="topic-title">Redundancy: always have a backup engine</h2>
+    </div>
+    <p class="topic-lede">A commercial airplane always flies with two engines. If one fails mid-flight, the other lands the plane safely on its own. Apply the same logic to your load balancer.</p>
+    <div class="diagram run" data-label="primary fails, standby takes over">
+      <div class="redun-stage">
+        <div class="redun-pair">
+          <div class="redun-node a"><svg><use href="#ic-lb"/></svg>ACTIVE</div>
+          <div class="redun-node b"><svg><use href="#ic-lb"/></svg>STANDBY</div>
+        </div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:10px;">
+      <p>Run two load balancers instead of one. Traffic flows to the active one as normal; the passive one watches and waits. The moment the active balancer crashes, the standby takes over instantly.</p>
+    </div>
+  </section>
+
+  <!-- 8: HEALTH CHECKS -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">08</span>
+      <h2 class="topic-title">Health checks: the heartbeat monitor</h2>
+    </div>
+    <p class="topic-lede">Having a backup is useless if nothing knows when to use it. The system needs to constantly ask each part: <strong>"Are you still alive?"</strong></p>
+    <div class="diagram run" data-label="continuous pings to every node">
+      <div class="lb-stage" style="min-height:220px;">
+        <div class="lb-mid" style="flex:0 0 80px;">
+          <div class="lb-node"><svg style="width:100%;height:100%;"><use href="#ic-lb"/></svg></div>
+        </div>
+        <div class="lb-targets" style="gap:14px;">
+          <div class="hc-target"><svg><use href="#ic-server"/></svg></div>
+          <div class="hc-target"><svg><use href="#ic-server"/></svg></div>
+          <div class="hc-target"><svg><use href="#ic-server"/></svg></div>
+          <div class="hc-target down"><svg><use href="#ic-server"/></svg><div class="hc-x"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:10px;">
+      <p>This is exactly like an ICU heart-rate monitor: a steady beep confirming the patient is stable, and an instant alarm the second something changes. Load balancers ping every server on a tight loop, removing any that stop answering from the rotation until it recovers.</p>
+    </div>
+  </section>
+
+  <!-- 9: SELF HEALING -->
+  <section class="topic">
+    <div class="topic-head">
+      <span class="topic-num">09</span>
+      <h2 class="topic-title">Self-healing systems: the lizard's tail</h2>
+    </div>
+    <p class="topic-lede">When a lizard loses its tail, it doesn't wait for a vet  it just grows another one. Modern cloud infrastructure does the same thing.</p>
+    <div class="diagram run" data-label="failed instance, replaced automatically">
+      <div class="heal-stage">
+        <div class="heal-box"><svg><use href="#ic-server"/></svg></div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:10px;">
+      <p>The moment a health check flags a dead server, automation  AWS Auto Scaling and similar tools  terminates the broken instance and spins up a fresh one in its place, usually within seconds, with no engineer touching a keyboard.</p>
+    </div>
+  </section>
+
+  <!-- 10: NETFLIX STORY -->
+  <section class="topic">
+    <div class="brand-tag">
+      <span class="wordmark">NETFLIX</span>
+      <span class="tag-sep">·</span>
+      <span class="tag-ctx">case in point</span>
+    </div>
+    <div class="topic-head">
+      <span class="topic-num">10</span>
+      <h2 class="topic-title">Putting it together: a Friday night on Netflix</h2>
+    </div>
+    <p class="topic-lede">Here's every idea above, happening in under a second, while you're mid-episode and don't notice a thing.</p>
+    <div class="diagram run" data-label="from crash to recovery, automatically">
+      <div class="timeline">
+        <div class="tl-line"></div>
+        <div class="tl-particle"></div>
+        <div class="tl-step"><div class="tl-dot"></div><div class="tl-label">Server #45<br>crashes</div></div>
+        <div class="tl-step"><div class="tl-dot"></div><div class="tl-label">Health check<br>detects it</div></div>
+        <div class="tl-step"><div class="tl-dot"></div><div class="tl-label">Stream shifts to<br>Server #46</div></div>
+        <div class="tl-step"><div class="tl-dot"></div><div class="tl-label">New #45<br>spins up</div></div>
+      </div>
+    </div>
+    <div class="copy" style="margin-top:18px;">
+      <p>Redundancy meant a backup server was already running. The health check caught the failure in a fraction of a second and rerouted your stream before you noticed any buffering. Self-healing quietly rebuilt the failed server in the background, so capacity never actually shrank. <strong>That's not luck  that's the design holding under exactly the kind of pressure it was built for.</strong></p>
+    </div>
+  </section>
+
+  <!-- NEXT UP -->
+                 
+
+</div>
+
+<script>
+// populate the hero people grid with user icons (inspired by reference)
+(function(){
+  const grid = document.getElementById('peopleGrid');
+  for(let i=0;i<24;i++){
+    grid.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 24 24" style="width:100%;height:auto;"><use href="#ic-user"/></svg>');
+  }
+})();
+</script>
+
+</body>
+</html>
